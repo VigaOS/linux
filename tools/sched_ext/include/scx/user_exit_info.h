@@ -10,6 +10,11 @@
 #ifndef __USER_EXIT_INFO_H
 #define __USER_EXIT_INFO_H
 
+#ifdef LSP
+#define __bpf__
+#include "../vmlinux.h"
+#endif
+
 enum uei_sizes {
 	UEI_REASON_LEN		= 128,
 	UEI_MSG_LEN		= 1024,
@@ -25,7 +30,9 @@ struct user_exit_info {
 
 #ifdef __bpf__
 
+#ifndef LSP
 #include "vmlinux.h"
+#endif
 #include <bpf/bpf_core_read.h>
 
 #define UEI_DEFINE(__name)							\

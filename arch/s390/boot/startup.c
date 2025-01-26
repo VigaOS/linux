@@ -30,6 +30,9 @@ unsigned long __bootdata_preserved(vmemmap_size);
 unsigned long __bootdata_preserved(MODULES_VADDR);
 unsigned long __bootdata_preserved(MODULES_END);
 unsigned long __bootdata_preserved(max_mappable);
+unsigned long __bootdata_preserved(page_noexec_mask);
+unsigned long __bootdata_preserved(segment_noexec_mask);
+unsigned long __bootdata_preserved(region_noexec_mask);
 int __bootdata_preserved(relocate_lowcore);
 
 u64 __bootdata_preserved(stfle_fac_list[16]);
@@ -51,8 +54,14 @@ static void detect_facilities(void)
 	}
 	if (test_facility(78))
 		machine.has_edat2 = 1;
-	if (test_facility(130))
-		machine.has_nx = 1;
+	page_noexec_mask = -1UL;
+	segment_noexec_mask = -1UL;
+	region_noexec_mask = -1UL;
+	if (!test_facility(130)) {
+		page_noexec_mask &= ~_PAGE_NOEXEC;
+		segment_noexec_mask &= ~_SEGMENT_ENTRY_NOEXEC;
+		region_noexec_mask &= ~_REGION_ENTRY_NOEXEC;
+	}
 }
 
 static int cmma_test_essa(void)
@@ -182,12 +191,15 @@ static void kaslr_adjust_got(unsigned long offset)
  * Merge information from several sources into a single ident_map_size value.
  * "ident_map_size" represents the upper limit of physical memory we may ever
  * reach. It might not be all online memory, but also include standby (offline)
- * memory. "ident_map_size" could be lower then actual standby or even online
+ * memory or memory areas reserved for other means (e.g., memory devices such as
+ * virtio-mem).
+ *
+ * "ident_map_size" could be lower then actual standby/reserved or even online
  * memory present, due to limiting factors. We should never go above this limit.
  * It is the size of our identity mapping.
  *
  * Consider the following factors:
- * 1. max_physmem_end - end of physical memory online or standby.
+ * 1. max_physmem_end - end of physical memory online, standby or reserved.
  *    Always >= end of the last online memory range (get_physmem_online_end()).
  * 2. CONFIG_MAX_PHYSMEM_BITS - the maximum size of physical memory the
  *    kernel is able to support.
@@ -231,6 +243,8 @@ static unsigned long get_vmem_size(unsigned long identity_size,
 	vsize = round_up(SZ_2G + max_mappable, rte_size) +
 		round_up(vmemmap_size, rte_size) +
 		FIXMAP_SIZE + MODULES_LEN + KASLR_LEN;
+	if (IS_ENABLED(CONFIG_KMSAN))
+		vsize += MODULES_LEN * 2;
 	return size_add(vsize, vmalloc_size);
 }
 
@@ -480,7 +494,7 @@ void startup_kernel(void)
 	 * __vmlinux_relocs_64_end as the lower range address. However,
 	 * .amode31 section is written to by the decompressed kernel - at
 	 * that time the contents of .vmlinux.relocs is not needed anymore.
-	 * Conversly, .vmlinux.relocs is read only by the decompressor, even
+	 * Conversely, .vmlinux.relocs is read only by the decompressor, even
 	 * before the kernel started. Therefore, in case the two sections
 	 * overlap there is no risk of corrupting any data.
 	 */

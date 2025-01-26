@@ -725,8 +725,8 @@ static void dell_update_rfkill(struct work_struct *ignored)
 }
 static DECLARE_DELAYED_WORK(dell_rfkill_work, dell_update_rfkill);
 
-static bool dell_laptop_i8042_filter(unsigned char data, unsigned char str,
-			      struct serio *port)
+static bool dell_laptop_i8042_filter(unsigned char data, unsigned char str, struct serio *port,
+				     void *context)
 {
 	static bool extended;
 
@@ -884,7 +884,7 @@ static int __init dell_setup_rfkill(void)
 		pr_warn("Unable to register dell rbtn notifier\n");
 		goto err_filter;
 	} else {
-		ret = i8042_install_filter(dell_laptop_i8042_filter);
+		ret = i8042_install_filter(dell_laptop_i8042_filter, NULL);
 		if (ret) {
 			pr_warn("Unable to install key filter\n");
 			goto err_filter;
@@ -2391,12 +2391,18 @@ static struct attribute *dell_battery_attrs[] = {
 };
 ATTRIBUTE_GROUPS(dell_battery);
 
+static bool dell_battery_supported(struct power_supply *battery)
+{
+	/* We currently only support the primary battery */
+	return strcmp(battery->desc->name, "BAT0") == 0;
+}
+
 static int dell_battery_add(struct power_supply *battery,
 		struct acpi_battery_hook *hook)
 {
-	/* this currently only supports the primary battery */
-	if (strcmp(battery->desc->name, "BAT0") != 0)
-		return -ENODEV;
+	/* Return 0 instead of an error to avoid being unloaded */
+	if (!dell_battery_supported(battery))
+		return 0;
 
 	return device_add_groups(&battery->dev, dell_battery_groups);
 }
@@ -2404,6 +2410,9 @@ static int dell_battery_add(struct power_supply *battery,
 static int dell_battery_remove(struct power_supply *battery,
 		struct acpi_battery_hook *hook)
 {
+	if (!dell_battery_supported(battery))
+		return 0;
+
 	device_remove_groups(&battery->dev, dell_battery_groups);
 	return 0;
 }

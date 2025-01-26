@@ -408,13 +408,12 @@ static void list_test_list_cut_position(struct kunit *test)
 
 	KUNIT_EXPECT_EQ(test, i, 2);
 
-	i = 0;
 	list_for_each(cur, &list1) {
 		KUNIT_EXPECT_PTR_EQ(test, cur, &entries[i]);
 		i++;
 	}
 
-	KUNIT_EXPECT_EQ(test, i, 1);
+	KUNIT_EXPECT_EQ(test, i, 3);
 }
 
 static void list_test_list_cut_before(struct kunit *test)
@@ -439,13 +438,12 @@ static void list_test_list_cut_before(struct kunit *test)
 
 	KUNIT_EXPECT_EQ(test, i, 1);
 
-	i = 0;
 	list_for_each(cur, &list1) {
 		KUNIT_EXPECT_PTR_EQ(test, cur, &entries[i]);
 		i++;
 	}
 
-	KUNIT_EXPECT_EQ(test, i, 2);
+	KUNIT_EXPECT_EQ(test, i, 3);
 }
 
 static void list_test_list_splice(struct kunit *test)

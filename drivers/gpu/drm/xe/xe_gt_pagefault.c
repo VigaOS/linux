@@ -10,7 +10,6 @@
 
 #include <drm/drm_exec.h>
 #include <drm/drm_managed.h>
-#include <drm/ttm/ttm_execbuf_util.h>
 
 #include "abi/guc_actions_abi.h"
 #include "xe_bo.h"
@@ -185,6 +184,21 @@ unlock_dma_resv:
 	return err;
 }
 
+static struct xe_vm *asid_to_vm(struct xe_device *xe, u32 asid)
+{
+	struct xe_vm *vm;
+
+	down_read(&xe->usm.lock);
+	vm = xa_load(&xe->usm.asid_to_vm, asid);
+	if (vm && xe_vm_in_fault_mode(vm))
+		xe_vm_get(vm);
+	else
+		vm = ERR_PTR(-EINVAL);
+	up_read(&xe->usm.lock);
+
+	return vm;
+}
+
 static int handle_pagefault(struct xe_gt *gt, struct pagefault *pf)
 {
 	struct xe_device *xe = gt_to_xe(gt);
@@ -197,21 +211,20 @@ static int handle_pagefault(struct xe_gt *gt, struct pagefault *pf)
 	if (pf->trva_fault)
 		return -EFAULT;
 
-	/* ASID to VM */
-	mutex_lock(&xe->usm.lock);
-	vm = xa_load(&xe->usm.asid_to_vm, pf->asid);
-	if (vm && xe_vm_in_fault_mode(vm))
-		xe_vm_get(vm);
-	else
-		vm = NULL;
-	mutex_unlock(&xe->usm.lock);
-	if (!vm)
-		return -EINVAL;
+	vm = asid_to_vm(xe, pf->asid);
+	if (IS_ERR(vm))
+		return PTR_ERR(vm);
 
 	/*
 	 * TODO: Change to read lock? Using write lock for simplicity.
 	 */
 	down_write(&vm->lock);
+
+	if (xe_vm_is_closed(vm)) {
+		err = -ENOENT;
+		goto unlock_vm;
+	}
+
 	vma = lookup_vma(vm, pf->page_addr);
 	if (!vma) {
 		err = -EINVAL;
@@ -542,14 +555,9 @@ static int handle_acc(struct xe_gt *gt, struct acc *acc)
 	if (acc->access_type != ACC_TRIGGER)
 		return -EINVAL;
 
-	/* ASID to VM */
-	mutex_lock(&xe->usm.lock);
-	vm = xa_load(&xe->usm.asid_to_vm, acc->asid);
-	if (vm)
-		xe_vm_get(vm);
-	mutex_unlock(&xe->usm.lock);
-	if (!vm || !xe_vm_in_fault_mode(vm))
-		return -EINVAL;
+	vm = asid_to_vm(xe, acc->asid);
+	if (IS_ERR(vm))
+		return PTR_ERR(vm);
 
 	down_read(&vm->lock);
 

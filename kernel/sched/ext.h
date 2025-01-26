@@ -18,7 +18,7 @@ bool scx_can_stop_tick(struct rq *rq);
 void scx_rq_activate(struct rq *rq);
 void scx_rq_deactivate(struct rq *rq);
 int scx_check_setscheduler(struct task_struct *p, int policy);
-bool task_should_scx(struct task_struct *p);
+bool task_should_scx(int policy);
 void init_sched_ext_class(void);
 
 static inline u32 scx_cpuperf_target(s32 cpu)
@@ -57,15 +57,15 @@ static inline void init_sched_ext_class(void) {}
 #endif	/* CONFIG_SCHED_CLASS_EXT */
 
 #if defined(CONFIG_SCHED_CLASS_EXT) && defined(CONFIG_SMP)
-void __scx_update_idle(struct rq *rq, bool idle);
+void __scx_update_idle(struct rq *rq, bool idle, bool do_notify);
 
-static inline void scx_update_idle(struct rq *rq, bool idle)
+static inline void scx_update_idle(struct rq *rq, bool idle, bool do_notify)
 {
 	if (scx_enabled())
-		__scx_update_idle(rq, idle);
+		__scx_update_idle(rq, idle, do_notify);
 }
 #else
-static inline void scx_update_idle(struct rq *rq, bool idle) {}
+static inline void scx_update_idle(struct rq *rq, bool idle, bool do_notify) {}
 #endif
 
 #ifdef CONFIG_CGROUP_SCHED

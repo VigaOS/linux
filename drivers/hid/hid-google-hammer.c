@@ -23,7 +23,7 @@
 #include <linux/platform_data/cros_ec_proto.h>
 #include <linux/platform_device.h>
 #include <linux/pm_wakeup.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #include "hid-ids.h"
 #include "hid-vivaldi-common.h"
@@ -284,7 +284,7 @@ MODULE_DEVICE_TABLE(of, cbas_ec_of_match);
 
 static struct platform_driver cbas_ec_driver = {
 	.probe = cbas_ec_probe,
-	.remove_new = cbas_ec_remove,
+	.remove = cbas_ec_remove,
 	.driver = {
 		.name = "cbas_ec",
 		.acpi_match_table = ACPI_PTR(cbas_ec_acpi_ids),

@@ -141,7 +141,7 @@ int io_futex_cancel(struct io_ring_ctx *ctx, struct io_cancel_data *cd,
 	return -ENOENT;
 }
 
-bool io_futex_remove_all(struct io_ring_ctx *ctx, struct task_struct *task,
+bool io_futex_remove_all(struct io_ring_ctx *ctx, struct io_uring_task *tctx,
 			 bool cancel_all)
 {
 	struct hlist_node *tmp;
@@ -151,7 +151,7 @@ bool io_futex_remove_all(struct io_ring_ctx *ctx, struct task_struct *task,
 	lockdep_assert_held(&ctx->uring_lock);
 
 	hlist_for_each_entry_safe(req, tmp, &ctx->futex_list, hash_node) {
-		if (!io_match_task_safe(req, task, cancel_all))
+		if (!io_match_task_safe(req, tctx, cancel_all))
 			continue;
 		hlist_del_init(&req->hash_node);
 		__io_futex_cancel(ctx, req);
@@ -251,17 +251,6 @@ static void io_futex_wake_fn(struct wake_q_head *wake_q, struct futex_q *q)
 	io_req_task_work_add(req);
 }
 
-static struct io_futex_data *io_alloc_ifd(struct io_ring_ctx *ctx)
-{
-	struct io_futex_data *ifd;
-
-	ifd = io_alloc_cache_get(&ctx->futex_cache);
-	if (ifd)
-		return ifd;
-
-	return kmalloc(sizeof(struct io_futex_data), GFP_NOWAIT);
-}
-
 int io_futexv_wait(struct io_kiocb *req, unsigned int issue_flags)
 {
 	struct io_futex *iof = io_kiocb_to_cmd(req, struct io_futex);
@@ -331,7 +320,7 @@ int io_futex_wait(struct io_kiocb *req, unsigned int issue_flags)
 	}
 
 	io_ring_submit_lock(ctx, issue_flags);
-	ifd = io_alloc_ifd(ctx);
+	ifd = io_cache_alloc(&ctx->futex_cache, GFP_NOWAIT, NULL);
 	if (!ifd) {
 		ret = -ENOMEM;
 		goto done_unlock;

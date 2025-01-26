@@ -13,7 +13,7 @@
 #include <linux/module.h>
 #include <linux/pci.h>
 
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #include <scsi/scsi_cmnd.h>
 #include <scsi/scsi_host.h>
@@ -3650,6 +3650,8 @@ static int cxlflash_probe(struct pci_dev *pdev,
 	struct dev_dependent_vals *ddv;
 	int rc = 0;
 	int k;
+
+	dev_err_once(&pdev->dev, "DEPRECATION: cxlflash is deprecated and will be removed in a future kernel release\n");
 
 	dev_dbg(&pdev->dev, "%s: Found CXLFLASH with IRQ: %d\n",
 		__func__, pdev->irq);

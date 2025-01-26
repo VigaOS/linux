@@ -177,7 +177,7 @@ settles down a bit.
 **mandatory**
 
 s_export_op is now required for exporting a filesystem.
-isofs, ext2, ext3, reiserfs, fat
+isofs, ext2, ext3, fat
 can be used as examples of very different filesystems.
 
 ---
@@ -313,7 +313,7 @@ done.
 
 **mandatory**
 
-block truncatation on error exit from ->write_begin, and ->direct_IO
+block truncation on error exit from ->write_begin, and ->direct_IO
 moved from generic methods (block_write_begin, cont_write_begin,
 nobh_write_begin, blockdev_direct_IO*) to callers.  Take a look at
 ext2_write_failed and callers for an example.

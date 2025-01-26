@@ -136,6 +136,7 @@ err_kfree:
 	xe_pt_free(pt);
 	return ERR_PTR(err);
 }
+ALLOW_ERROR_INJECTION(xe_pt_create, ERRNO);
 
 /**
  * xe_pt_populate_empty() - Populate a page-table bo with scratch- or zero
@@ -275,7 +276,7 @@ struct xe_pt_stage_bind_walk {
 	/* Also input, but is updated during the walk*/
 	/** @curs: The DMA address cursor. */
 	struct xe_res_cursor *curs;
-	/** @va_curs_start: The Virtual address coresponding to @curs->start */
+	/** @va_curs_start: The Virtual address corresponding to @curs->start */
 	u64 va_curs_start;
 
 	/* Output */
@@ -1333,8 +1334,7 @@ static void invalidation_fence_cb(struct dma_fence *fence,
 		queue_work(system_wq, &ifence->work);
 	} else {
 		ifence->base.base.error = ifence->fence->error;
-		dma_fence_signal(&ifence->base.base);
-		dma_fence_put(&ifence->base.base);
+		xe_gt_tlb_invalidation_fence_signal(&ifence->base);
 	}
 	dma_fence_put(ifence->fence);
 }
@@ -1851,6 +1851,7 @@ int xe_pt_update_ops_prepare(struct xe_tile *tile, struct xe_vma_ops *vops)
 
 	return 0;
 }
+ALLOW_ERROR_INJECTION(xe_pt_update_ops_prepare, ERRNO);
 
 static void bind_op_commit(struct xe_vm *vm, struct xe_tile *tile,
 			   struct xe_vm_pgtable_update_ops *pt_update_ops,
@@ -2131,6 +2132,7 @@ kill_vm_tile1:
 
 	return ERR_PTR(err);
 }
+ALLOW_ERROR_INJECTION(xe_pt_update_ops_run, ERRNO);
 
 /**
  * xe_pt_update_ops_fini() - Finish PT update operations
@@ -2188,5 +2190,5 @@ void xe_pt_update_ops_abort(struct xe_tile *tile, struct xe_vma_ops *vops)
 					   pt_op->num_entries);
 	}
 
-	xe_bo_put_commit(&vops->pt_update_ops[tile->id].deferred);
+	xe_pt_update_ops_fini(tile, vops);
 }

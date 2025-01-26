@@ -270,9 +270,7 @@ enum {
 
 	/* bits 24:31 of host->flags are reserved for LLD specific flags */
 
-	/* various lengths of time */
-	ATA_TMOUT_BOOT		= 30000,	/* heuristic */
-	ATA_TMOUT_BOOT_QUICK	=  7000,	/* heuristic */
+	/* Various lengths of time */
 	ATA_TMOUT_INTERNAL_QUICK = 5000,
 	ATA_TMOUT_MAX_PARK	= 30000,
 
@@ -1469,13 +1467,13 @@ extern const struct attribute_group *ata_common_sdev_groups[];
 #define ATA_SUBBASE_SHT(drv_name)				\
 	__ATA_BASE_SHT(drv_name),				\
 	.can_queue		= ATA_DEF_QUEUE,		\
-	.tag_alloc_policy	= BLK_TAG_ALLOC_RR,		\
+	.tag_alloc_policy_rr	= true,				\
 	.device_configure	= ata_scsi_device_configure
 
 #define ATA_SUBBASE_SHT_QD(drv_name, drv_qd)			\
 	__ATA_BASE_SHT(drv_name),				\
 	.can_queue		= drv_qd,			\
-	.tag_alloc_policy	= BLK_TAG_ALLOC_RR,		\
+	.tag_alloc_policy_rr	= true,				\
 	.device_configure	= ata_scsi_device_configure
 
 #define ATA_BASE_SHT(drv_name)					\

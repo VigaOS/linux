@@ -31,13 +31,13 @@ void BPF_STRUCT_OPS(enq_select_cpu_fails_enqueue, struct task_struct *p,
 	/* Can only call from ops.select_cpu() */
 	scx_bpf_select_cpu_dfl(p, 0, 0, &found);
 
-	scx_bpf_dispatch(p, SCX_DSQ_GLOBAL, SCX_SLICE_DFL, enq_flags);
+	scx_bpf_dsq_insert(p, SCX_DSQ_GLOBAL, SCX_SLICE_DFL, enq_flags);
 }
 
 SEC(".struct_ops.link")
 struct sched_ext_ops enq_select_cpu_fails_ops = {
-	.select_cpu		= enq_select_cpu_fails_select_cpu,
-	.enqueue		= enq_select_cpu_fails_enqueue,
+	.select_cpu		= (void *) enq_select_cpu_fails_select_cpu,
+	.enqueue		= (void *) enq_select_cpu_fails_enqueue,
 	.name			= "enq_select_cpu_fails",
 	.timeout_ms		= 1000U,
 };

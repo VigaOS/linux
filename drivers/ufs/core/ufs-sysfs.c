@@ -4,7 +4,7 @@
 #include <linux/err.h>
 #include <linux/string.h>
 #include <linux/bitfield.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #include <ufs/ufs.h>
 #include <ufs/unipro.h>
@@ -670,6 +670,9 @@ static ssize_t read_req_latency_avg_show(struct device *dev,
 	struct ufs_hba *hba = dev_get_drvdata(dev);
 	struct ufs_hba_monitor *m = &hba->monitor;
 
+	if (!m->nr_req[READ])
+		return sysfs_emit(buf, "0\n");
+
 	return sysfs_emit(buf, "%llu\n", div_u64(ktime_to_us(m->lat_sum[READ]),
 						 m->nr_req[READ]));
 }
@@ -736,6 +739,9 @@ static ssize_t write_req_latency_avg_show(struct device *dev,
 {
 	struct ufs_hba *hba = dev_get_drvdata(dev);
 	struct ufs_hba_monitor *m = &hba->monitor;
+
+	if (!m->nr_req[WRITE])
+		return sysfs_emit(buf, "0\n");
 
 	return sysfs_emit(buf, "%llu\n", div_u64(ktime_to_us(m->lat_sum[WRITE]),
 						 m->nr_req[WRITE]));
