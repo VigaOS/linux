@@ -6,6 +6,7 @@
 
 use crate::{
     bindings,
+    str::CStr,
     types::{ARef, Opaque},
 };
 use core::{fmt, ptr};
@@ -180,6 +181,12 @@ impl Device {
             )
         };
     }
+
+    /// Checks if property is present or not.
+    pub fn property_present(&self, name: &CStr) -> bool {
+        // SAFETY: By the invariant of `CStr`, `name` is null-terminated.
+        unsafe { bindings::device_property_present(self.as_raw().cast_const(), name.as_char_ptr()) }
+    }
 }
 
 // SAFETY: Instances of `Device` are always reference-counted.
@@ -201,6 +208,32 @@ unsafe impl Send for Device {}
 // SAFETY: `Device` can be shared among threads because all immutable methods are protected by the
 // synchronization in `struct device`.
 unsafe impl Sync for Device {}
+
+/// Marker trait for the context of a bus specific device.
+///
+/// Some functions of a bus specific device should only be called from a certain context, i.e. bus
+/// callbacks, such as `probe()`.
+///
+/// This is the marker trait for structures representing the context of a bus specific device.
+pub trait DeviceContext: private::Sealed {}
+
+/// The [`Normal`] context is the context of a bus specific device when it is not an argument of
+/// any bus callback.
+pub struct Normal;
+
+/// The [`Core`] context is the context of a bus specific device when it is supplied as argument of
+/// any of the bus callbacks, such as `probe()`.
+pub struct Core;
+
+mod private {
+    pub trait Sealed {}
+
+    impl Sealed for super::Core {}
+    impl Sealed for super::Normal {}
+}
+
+impl DeviceContext for Core {}
+impl DeviceContext for Normal {}
 
 #[doc(hidden)]
 #[macro_export]

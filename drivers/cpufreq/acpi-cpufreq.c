@@ -909,10 +909,8 @@ static int acpi_cpufreq_cpu_init(struct cpufreq_policy *policy)
 	if (perf->states[0].core_frequency * 1000 != freq_table[0].frequency)
 		pr_warn(FW_WARN "P-state 0 is not max freq\n");
 
-	if (acpi_cpufreq_driver.set_boost) {
-		set_boost(policy, acpi_cpufreq_driver.boost_enabled);
-		policy->boost_enabled = acpi_cpufreq_driver.boost_enabled;
-	}
+	if (acpi_cpufreq_driver.set_boost)
+		policy->boost_supported = true;
 
 	return result;
 
@@ -954,7 +952,6 @@ static int acpi_cpufreq_resume(struct cpufreq_policy *policy)
 }
 
 static struct freq_attr *acpi_cpufreq_attr[] = {
-	&cpufreq_freq_attr_scaling_available_freqs,
 	&freqdomain_cpus,
 #ifdef CONFIG_X86_ACPI_CPUFREQ_CPB
 	&cpb,

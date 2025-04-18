@@ -34,8 +34,13 @@ struct annotated_data_type;
 #define ANNOTATION__BR_CNTR_WIDTH 30
 #define ANNOTATION_DUMMY_LEN	256
 
-// llvm, capstone, objdump
-#define MAX_DISASSEMBLERS 3
+enum perf_disassembler {
+	PERF_DISASM_UNKNOWN = 0,
+	PERF_DISASM_LLVM,
+	PERF_DISASM_CAPSTONE,
+	PERF_DISASM_OBJDUMP,
+};
+#define MAX_DISASSEMBLERS (PERF_DISASM_OBJDUMP + 1)
 
 struct annotation_options {
 	bool hide_src_code,
@@ -50,16 +55,16 @@ struct annotation_options {
 	     show_asm_raw,
 	     show_br_cntr,
 	     annotate_src,
+	     code_with_type,
 	     full_addr;
 	u8   offset_level;
-	u8   nr_disassemblers;
+	u8   disassemblers[MAX_DISASSEMBLERS];
+	u8   disassembler_used;
 	int  min_pcnt;
 	int  max_lines;
 	int  context;
 	char *objdump_path;
 	char *disassembler_style;
-	const char *disassemblers_str;
-	const char *disassemblers[MAX_DISASSEMBLERS];
 	const char *prefix;
 	const char *prefix_strip;
 	unsigned int percent_type;
@@ -133,6 +138,8 @@ struct disasm_line {
 	/* This needs to be at the end. */
 	struct annotation_line	 al;
 };
+
+extern const char * const perf_disassembler__strs[];
 
 void annotation_line__add(struct annotation_line *al, struct list_head *head);
 
@@ -450,7 +457,6 @@ enum symbol_disassemble_errno {
 
 int symbol__strerror_disassemble(struct map_symbol *ms, int errnum, char *buf, size_t buflen);
 
-int symbol__annotate_printf(struct map_symbol *ms, struct evsel *evsel);
 void symbol__annotate_zero_histogram(struct symbol *sym, struct evsel *evsel);
 void symbol__annotate_decay_histogram(struct symbol *sym, struct evsel *evsel);
 void annotated_source__purge(struct annotated_source *as);
@@ -459,9 +465,9 @@ int map_symbol__annotation_dump(struct map_symbol *ms, struct evsel *evsel);
 
 bool ui__has_annotation(void);
 
-int symbol__tty_annotate(struct map_symbol *ms, struct evsel *evsel);
-
-int symbol__tty_annotate2(struct map_symbol *ms, struct evsel *evsel);
+int hist_entry__annotate_printf(struct hist_entry *he, struct evsel *evsel);
+int hist_entry__tty_annotate(struct hist_entry *he, struct evsel *evsel);
+int hist_entry__tty_annotate2(struct hist_entry *he, struct evsel *evsel);
 
 #ifdef HAVE_SLANG_SUPPORT
 int symbol__tui_annotate(struct map_symbol *ms, struct evsel *evsel,

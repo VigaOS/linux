@@ -6086,7 +6086,7 @@ static void niu_enable_napi(struct niu *np)
 	int i;
 
 	for (i = 0; i < np->num_ldg; i++)
-		napi_enable(&np->ldg[i].napi);
+		napi_enable_locked(&np->ldg[i].napi);
 }
 
 static void niu_disable_napi(struct niu *np)
@@ -6116,7 +6116,9 @@ static int niu_open(struct net_device *dev)
 	if (err)
 		goto out_free_channels;
 
+	netdev_lock(dev);
 	niu_enable_napi(np);
+	netdev_unlock(dev);
 
 	spin_lock_irq(&np->lock);
 
@@ -6163,7 +6165,7 @@ static void niu_full_shutdown(struct niu *np, struct net_device *dev)
 	niu_disable_napi(np);
 	netif_tx_stop_all_queues(dev);
 
-	del_timer_sync(&np->timer);
+	timer_delete_sync(&np->timer);
 
 	spin_lock_irq(&np->lock);
 
@@ -6509,7 +6511,7 @@ static void niu_reset_task(struct work_struct *work)
 
 	spin_unlock_irqrestore(&np->lock, flags);
 
-	del_timer_sync(&np->timer);
+	timer_delete_sync(&np->timer);
 
 	niu_netif_stop(np);
 
@@ -6521,6 +6523,7 @@ static void niu_reset_task(struct work_struct *work)
 
 	niu_reset_buffers(np);
 
+	netdev_lock(np->dev);
 	spin_lock_irqsave(&np->lock, flags);
 
 	err = niu_init_hw(np);
@@ -6531,6 +6534,7 @@ static void niu_reset_task(struct work_struct *work)
 	}
 
 	spin_unlock_irqrestore(&np->lock, flags);
+	netdev_unlock(np->dev);
 }
 
 static void niu_tx_timeout(struct net_device *dev, unsigned int txqueue)
@@ -6761,7 +6765,9 @@ static int niu_change_mtu(struct net_device *dev, int new_mtu)
 
 	niu_free_channels(np);
 
+	netdev_lock(dev);
 	niu_enable_napi(np);
+	netdev_unlock(dev);
 
 	err = niu_alloc_channels(np);
 	if (err)
@@ -9908,7 +9914,7 @@ static int __maybe_unused niu_suspend(struct device *dev_d)
 	flush_work(&np->reset_task);
 	niu_netif_stop(np);
 
-	del_timer_sync(&np->timer);
+	timer_delete_sync(&np->timer);
 
 	spin_lock_irqsave(&np->lock, flags);
 	niu_enable_interrupts(np, 0);
@@ -9937,6 +9943,7 @@ static int __maybe_unused niu_resume(struct device *dev_d)
 
 	spin_lock_irqsave(&np->lock, flags);
 
+	netdev_lock(dev);
 	err = niu_init_hw(np);
 	if (!err) {
 		np->timer.expires = jiffies + HZ;
@@ -9945,6 +9952,7 @@ static int __maybe_unused niu_resume(struct device *dev_d)
 	}
 
 	spin_unlock_irqrestore(&np->lock, flags);
+	netdev_unlock(dev);
 
 	return err;
 }

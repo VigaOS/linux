@@ -5,8 +5,7 @@
 enum bch_fsck_flags {
 	FSCK_CAN_FIX		= 1 << 0,
 	FSCK_CAN_IGNORE		= 1 << 1,
-	FSCK_NO_RATELIMIT	= 1 << 2,
-	FSCK_AUTOFIX		= 1 << 3,
+	FSCK_AUTOFIX		= 1 << 2,
 };
 
 #define BCH_SB_ERRS()									\
@@ -57,7 +56,7 @@ enum bch_fsck_flags {
 	x(bset_wrong_sector_offset,				 44,	0)		\
 	x(bset_empty,						 45,	0)		\
 	x(bset_bad_seq,						 46,	0)		\
-	x(bset_blacklisted_journal_seq,				 47,	0)		\
+	x(bset_blacklisted_journal_seq,				 47,	FSCK_AUTOFIX)	\
 	x(first_bset_blacklisted_journal_seq,			 48,	FSCK_AUTOFIX)	\
 	x(btree_node_bad_btree,					 49,	0)		\
 	x(btree_node_bad_level,					 50,	0)		\
@@ -179,10 +178,11 @@ enum bch_fsck_flags {
 	x(ptr_crc_redundant,					160,	0)		\
 	x(ptr_crc_nonce_mismatch,				162,	0)		\
 	x(ptr_stripe_redundant,					163,	0)		\
+	x(extent_flags_not_at_start,				306,	0)		\
 	x(reservation_key_nr_replicas_invalid,			164,	0)		\
-	x(reflink_v_refcount_wrong,				165,	0)		\
+	x(reflink_v_refcount_wrong,				165,	FSCK_AUTOFIX)	\
 	x(reflink_v_pos_bad,					292,	0)		\
-	x(reflink_p_to_missing_reflink_v,			166,	0)		\
+	x(reflink_p_to_missing_reflink_v,			166,	FSCK_AUTOFIX)	\
 	x(reflink_refcount_underflow,				293,	0)		\
 	x(stripe_pos_bad,					167,	0)		\
 	x(stripe_val_size_bad,					168,	0)		\
@@ -290,8 +290,8 @@ enum bch_fsck_flags {
 	x(btree_node_bkey_bad_u64s,				260,	0)		\
 	x(btree_node_topology_empty_interior_node,		261,	0)		\
 	x(btree_ptr_v2_min_key_bad,				262,	0)		\
-	x(btree_root_unreadable_and_scan_found_nothing,		263,	0)		\
-	x(snapshot_node_missing,				264,	0)		\
+	x(btree_root_unreadable_and_scan_found_nothing,		263,	FSCK_AUTOFIX)	\
+	x(snapshot_node_missing,				264,	FSCK_AUTOFIX)	\
 	x(dup_backpointer_to_bad_csum_extent,			265,	0)		\
 	x(btree_bitmap_not_marked,				266,	FSCK_AUTOFIX)	\
 	x(sb_clean_entry_overrun,				267,	0)		\
@@ -310,11 +310,14 @@ enum bch_fsck_flags {
 	x(accounting_key_replicas_nr_required_bad,		279,	FSCK_AUTOFIX)	\
 	x(accounting_key_replicas_devs_unsorted,		280,	FSCK_AUTOFIX)	\
 	x(accounting_key_version_0,				282,	FSCK_AUTOFIX)	\
+	x(accounting_key_nr_counters_wrong,			307,	FSCK_AUTOFIX)	\
 	x(logged_op_but_clean,					283,	FSCK_AUTOFIX)	\
 	x(compression_opt_not_marked_in_sb,			295,	FSCK_AUTOFIX)	\
 	x(compression_type_not_marked_in_sb,			296,	FSCK_AUTOFIX)	\
 	x(directory_size_mismatch,				303,	FSCK_AUTOFIX)	\
-	x(MAX,							304,	0)
+	x(dirent_cf_name_too_big,				304,	0)		\
+	x(dirent_stray_data_after_cf_name,			305,	0)		\
+	x(MAX,							308,	0)
 
 enum bch_sb_error_id {
 #define x(t, n, ...) BCH_FSCK_ERR_##t = n,
