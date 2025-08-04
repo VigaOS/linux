@@ -26,6 +26,7 @@
 #include "smbdirect.h"
 #endif
 #include "cifs_swn.h"
+#include "cached_dir.h"
 
 void
 cifs_dump_mem(char *label, void *data, int length)
@@ -280,6 +281,54 @@ static int cifs_debug_files_proc_show(struct seq_file *m, void *v)
 	return 0;
 }
 
+static int cifs_debug_dirs_proc_show(struct seq_file *m, void *v)
+{
+	struct list_head *stmp, *tmp, *tmp1;
+	struct TCP_Server_Info *server;
+	struct cifs_ses *ses;
+	struct cifs_tcon *tcon;
+	struct cached_fids *cfids;
+	struct cached_fid *cfid;
+	LIST_HEAD(entry);
+
+	seq_puts(m, "# Version:1\n");
+	seq_puts(m, "# Format:\n");
+	seq_puts(m, "# <tree id> <sess id> <persistent fid> <path>\n");
+
+	spin_lock(&cifs_tcp_ses_lock);
+	list_for_each(stmp, &cifs_tcp_ses_list) {
+		server = list_entry(stmp, struct TCP_Server_Info,
+				    tcp_ses_list);
+		list_for_each(tmp, &server->smb_ses_list) {
+			ses = list_entry(tmp, struct cifs_ses, smb_ses_list);
+			list_for_each(tmp1, &ses->tcon_list) {
+				tcon = list_entry(tmp1, struct cifs_tcon, tcon_list);
+				cfids = tcon->cfids;
+				spin_lock(&cfids->cfid_list_lock); /* check lock ordering */
+				seq_printf(m, "Num entries: %d\n", cfids->num_entries);
+				list_for_each_entry(cfid, &cfids->entries, entry) {
+					seq_printf(m, "0x%x 0x%llx 0x%llx     %s",
+						tcon->tid,
+						ses->Suid,
+						cfid->fid.persistent_fid,
+						cfid->path);
+					if (cfid->file_all_info_is_valid)
+						seq_printf(m, "\tvalid file info");
+					if (cfid->dirents.is_valid)
+						seq_printf(m, ", valid dirents");
+					seq_printf(m, "\n");
+				}
+				spin_unlock(&cfids->cfid_list_lock);
+
+
+			}
+		}
+	}
+	spin_unlock(&cifs_tcp_ses_lock);
+	seq_putc(m, '\n');
+	return 0;
+}
+
 static __always_inline const char *compression_alg_str(__le16 alg)
 {
 	switch (alg) {
@@ -362,6 +411,10 @@ static int cifs_debug_data_proc_show(struct seq_file *m, void *v)
 	c = 0;
 	spin_lock(&cifs_tcp_ses_lock);
 	list_for_each_entry(server, &cifs_tcp_ses_list, tcp_ses_list) {
+#ifdef CONFIG_CIFS_SMB_DIRECT
+		struct smbdirect_socket_parameters *sp;
+#endif
+
 		/* channel info will be printed as a part of sessions below */
 		if (SERVER_IS_CHAN(server))
 			continue;
@@ -383,25 +436,26 @@ static int cifs_debug_data_proc_show(struct seq_file *m, void *v)
 			seq_printf(m, "\nSMBDirect transport not available");
 			goto skip_rdma;
 		}
+		sp = &server->smbd_conn->socket.parameters;
 
 		seq_printf(m, "\nSMBDirect (in hex) protocol version: %x "
 			"transport status: %x",
 			server->smbd_conn->protocol,
-			server->smbd_conn->transport_status);
+			server->smbd_conn->socket.status);
 		seq_printf(m, "\nConn receive_credit_max: %x "
 			"send_credit_target: %x max_send_size: %x",
-			server->smbd_conn->receive_credit_max,
-			server->smbd_conn->send_credit_target,
-			server->smbd_conn->max_send_size);
+			sp->recv_credit_max,
+			sp->send_credit_target,
+			sp->max_send_size);
 		seq_printf(m, "\nConn max_fragmented_recv_size: %x "
 			"max_fragmented_send_size: %x max_receive_size:%x",
-			server->smbd_conn->max_fragmented_recv_size,
-			server->smbd_conn->max_fragmented_send_size,
-			server->smbd_conn->max_receive_size);
+			sp->max_fragmented_recv_size,
+			sp->max_fragmented_send_size,
+			sp->max_recv_size);
 		seq_printf(m, "\nConn keep_alive_interval: %x "
 			"max_readwrite_size: %x rdma_readwrite_threshold: %x",
-			server->smbd_conn->keep_alive_interval,
-			server->smbd_conn->max_readwrite_size,
+			sp->keepalive_interval_msec * 1000,
+			sp->max_read_write_size,
 			server->smbd_conn->rdma_readwrite_threshold);
 		seq_printf(m, "\nDebug count_get_receive_buffer: %x "
 			"count_put_receive_buffer: %x count_send_empty: %x",
@@ -858,6 +912,9 @@ cifs_proc_init(void)
 	proc_create_single("open_files", 0400, proc_fs_cifs,
 			cifs_debug_files_proc_show);
 
+	proc_create_single("open_dirs", 0400, proc_fs_cifs,
+			cifs_debug_dirs_proc_show);
+
 	proc_create("Stats", 0644, proc_fs_cifs, &cifs_stats_proc_ops);
 	proc_create("cifsFYI", 0644, proc_fs_cifs, &cifsFYI_proc_ops);
 	proc_create("traceSMB", 0644, proc_fs_cifs, &traceSMB_proc_ops);
@@ -902,6 +959,7 @@ cifs_proc_clean(void)
 
 	remove_proc_entry("DebugData", proc_fs_cifs);
 	remove_proc_entry("open_files", proc_fs_cifs);
+	remove_proc_entry("open_dirs", proc_fs_cifs);
 	remove_proc_entry("cifsFYI", proc_fs_cifs);
 	remove_proc_entry("traceSMB", proc_fs_cifs);
 	remove_proc_entry("Stats", proc_fs_cifs);
@@ -1100,7 +1158,7 @@ static ssize_t cifs_security_flags_proc_write(struct file *file,
 	if ((count < 1) || (count > 11))
 		return -EINVAL;
 
-	memset(flags_string, 0, 12);
+	memset(flags_string, 0, sizeof(flags_string));
 
 	if (copy_from_user(flags_string, buffer, count))
 		return -EFAULT;

@@ -361,7 +361,7 @@ aie2_sched_job_timedout(struct drm_sched_job *sched_job)
 	aie2_hwctx_restart(xdna, hwctx);
 	mutex_unlock(&xdna->dev_lock);
 
-	return DRM_GPU_SCHED_STAT_NOMINAL;
+	return DRM_GPU_SCHED_STAT_RESET;
 }
 
 static const struct drm_sched_backend_ops sched_ops = {
@@ -566,7 +566,7 @@ int aie2_hwctx_init(struct amdxdna_hwctx *hwctx)
 			.size = MAX_CHAIN_CMDBUF_SIZE,
 		};
 
-		abo = amdxdna_drm_alloc_dev_bo(&xdna->ddev, &args, client->filp, true);
+		abo = amdxdna_drm_alloc_dev_bo(&xdna->ddev, &args, client->filp);
 		if (IS_ERR(abo)) {
 			ret = PTR_ERR(abo);
 			goto free_cmd_bufs;
@@ -758,27 +758,42 @@ int aie2_hwctx_config(struct amdxdna_hwctx *hwctx, u32 type, u64 value, void *bu
 static int aie2_populate_range(struct amdxdna_gem_obj *abo)
 {
 	struct amdxdna_dev *xdna = to_xdna_dev(to_gobj(abo)->dev);
-	struct mm_struct *mm = abo->mem.notifier.mm;
-	struct hmm_range range = { 0 };
+	struct amdxdna_umap *mapp;
 	unsigned long timeout;
+	struct mm_struct *mm;
+	bool found;
 	int ret;
-
-	XDNA_INFO_ONCE(xdna, "populate memory range %llx size %lx",
-		       abo->mem.userptr, abo->mem.size);
-	range.notifier = &abo->mem.notifier;
-	range.start = abo->mem.userptr;
-	range.end = abo->mem.userptr + abo->mem.size;
-	range.hmm_pfns = abo->mem.pfns;
-	range.default_flags = HMM_PFN_REQ_FAULT;
-
-	if (!mmget_not_zero(mm))
-		return -EFAULT;
 
 	timeout = jiffies + msecs_to_jiffies(HMM_RANGE_DEFAULT_TIMEOUT);
 again:
-	range.notifier_seq = mmu_interval_read_begin(&abo->mem.notifier);
+	found = false;
+	down_write(&xdna->notifier_lock);
+	list_for_each_entry(mapp, &abo->mem.umap_list, node) {
+		if (mapp->invalid) {
+			found = true;
+			break;
+		}
+	}
+
+	if (!found) {
+		abo->mem.map_invalid = false;
+		up_write(&xdna->notifier_lock);
+		return 0;
+	}
+	kref_get(&mapp->refcnt);
+	up_write(&xdna->notifier_lock);
+
+	XDNA_DBG(xdna, "populate memory range %lx %lx",
+		 mapp->vma->vm_start, mapp->vma->vm_end);
+	mm = mapp->notifier.mm;
+	if (!mmget_not_zero(mm)) {
+		amdxdna_umap_put(mapp);
+		return -EFAULT;
+	}
+
+	mapp->range.notifier_seq = mmu_interval_read_begin(&mapp->notifier);
 	mmap_read_lock(mm);
-	ret = hmm_range_fault(&range);
+	ret = hmm_range_fault(&mapp->range);
 	mmap_read_unlock(mm);
 	if (ret) {
 		if (time_after(jiffies, timeout)) {
@@ -786,21 +801,27 @@ again:
 			goto put_mm;
 		}
 
-		if (ret == -EBUSY)
+		if (ret == -EBUSY) {
+			amdxdna_umap_put(mapp);
 			goto again;
+		}
 
 		goto put_mm;
 	}
 
-	down_read(&xdna->notifier_lock);
-	if (mmu_interval_read_retry(&abo->mem.notifier, range.notifier_seq)) {
-		up_read(&xdna->notifier_lock);
+	down_write(&xdna->notifier_lock);
+	if (mmu_interval_read_retry(&mapp->notifier, mapp->range.notifier_seq)) {
+		up_write(&xdna->notifier_lock);
+		amdxdna_umap_put(mapp);
 		goto again;
 	}
-	abo->mem.map_invalid = false;
-	up_read(&xdna->notifier_lock);
+	mapp->invalid = false;
+	up_write(&xdna->notifier_lock);
+	amdxdna_umap_put(mapp);
+	goto again;
 
 put_mm:
+	amdxdna_umap_put(mapp);
 	mmput(mm);
 	return ret;
 }
@@ -827,7 +848,8 @@ int aie2_cmd_submit(struct amdxdna_hwctx *hwctx, struct amdxdna_sched_job *job, 
 		goto up_sem;
 	}
 
-	ret = drm_sched_job_init(&job->base, &hwctx->priv->entity, 1, hwctx);
+	ret = drm_sched_job_init(&job->base, &hwctx->priv->entity, 1, hwctx,
+				 hwctx->client->filp->client_id);
 	if (ret) {
 		XDNA_ERR(xdna, "DRM job init failed, ret %d", ret);
 		goto free_chain;
@@ -908,10 +930,6 @@ void aie2_hmm_invalidate(struct amdxdna_gem_obj *abo,
 	struct drm_gem_object *gobj = to_gobj(abo);
 	long ret;
 
-	down_write(&xdna->notifier_lock);
-	abo->mem.map_invalid = true;
-	mmu_interval_set_seq(&abo->mem.notifier, cur_seq);
-	up_write(&xdna->notifier_lock);
 	ret = dma_resv_wait_timeout(gobj->resv, DMA_RESV_USAGE_BOOKKEEP,
 				    true, MAX_SCHEDULE_TIMEOUT);
 	if (!ret || ret == -ERESTARTSYS)

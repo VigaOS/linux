@@ -33,6 +33,10 @@ static unsigned long ivpu_tdr_timeout_ms;
 module_param_named(tdr_timeout_ms, ivpu_tdr_timeout_ms, ulong, 0644);
 MODULE_PARM_DESC(tdr_timeout_ms, "Timeout for device hang detection, in milliseconds, 0 - default");
 
+static unsigned long ivpu_inference_timeout_ms;
+module_param_named(inference_timeout_ms, ivpu_inference_timeout_ms, ulong, 0644);
+MODULE_PARM_DESC(inference_timeout_ms, "Inference maximum duration, in milliseconds, 0 - default");
+
 #define PM_RESCHEDULE_LIMIT     5
 
 static void ivpu_pm_prepare_cold_boot(struct ivpu_device *vdev)
@@ -44,6 +48,7 @@ static void ivpu_pm_prepare_cold_boot(struct ivpu_device *vdev)
 	ivpu_fw_log_reset(vdev);
 	ivpu_fw_load(vdev);
 	fw->entry_point = fw->cold_boot_entry_point;
+	fw->last_heartbeat = 0;
 }
 
 static void ivpu_pm_prepare_warm_boot(struct ivpu_device *vdev)
@@ -189,7 +194,30 @@ static void ivpu_job_timeout_work(struct work_struct *work)
 {
 	struct ivpu_pm_info *pm = container_of(work, struct ivpu_pm_info, job_timeout_work.work);
 	struct ivpu_device *vdev = pm->vdev;
+	unsigned long timeout_ms = ivpu_tdr_timeout_ms ? ivpu_tdr_timeout_ms : vdev->timeout.tdr;
+	unsigned long inference_timeout_ms = ivpu_inference_timeout_ms ? ivpu_inference_timeout_ms :
+					     vdev->timeout.inference;
+	u64 inference_max_retries;
+	u64 heartbeat;
 
+	if (ivpu_jsm_get_heartbeat(vdev, 0, &heartbeat) || heartbeat <= vdev->fw->last_heartbeat) {
+		ivpu_err(vdev, "Job timeout detected, heartbeat not progressed\n");
+		goto recovery;
+	}
+
+	inference_max_retries = DIV_ROUND_UP(inference_timeout_ms, timeout_ms);
+	if (atomic_fetch_inc(&vdev->job_timeout_counter) >= inference_max_retries) {
+		ivpu_err(vdev, "Job timeout detected, heartbeat limit (%lld) exceeded\n",
+			 inference_max_retries);
+		goto recovery;
+	}
+
+	vdev->fw->last_heartbeat = heartbeat;
+	ivpu_start_job_timeout_detection(vdev);
+	return;
+
+recovery:
+	atomic_set(&vdev->job_timeout_counter, 0);
 	ivpu_pm_trigger_recovery(vdev, "TDR");
 }
 
@@ -204,6 +232,7 @@ void ivpu_start_job_timeout_detection(struct ivpu_device *vdev)
 void ivpu_stop_job_timeout_detection(struct ivpu_device *vdev)
 {
 	cancel_delayed_work_sync(&vdev->pm->job_timeout_work);
+	atomic_set(&vdev->job_timeout_counter, 0);
 }
 
 int ivpu_pm_suspend_cb(struct device *dev)
@@ -428,16 +457,17 @@ int ivpu_pm_dct_enable(struct ivpu_device *vdev, u8 active_percent)
 	active_us = (DCT_PERIOD_US * active_percent) / 100;
 	inactive_us = DCT_PERIOD_US - active_us;
 
+	vdev->pm->dct_active_percent = active_percent;
+
+	ivpu_dbg(vdev, PM, "DCT requested %u%% (D0: %uus, D0i2: %uus)\n",
+		 active_percent, active_us, inactive_us);
+
 	ret = ivpu_jsm_dct_enable(vdev, active_us, inactive_us);
 	if (ret) {
 		ivpu_err_ratelimited(vdev, "Failed to enable DCT: %d\n", ret);
 		return ret;
 	}
 
-	vdev->pm->dct_active_percent = active_percent;
-
-	ivpu_dbg(vdev, PM, "DCT set to %u%% (D0: %uus, D0i2: %uus)\n",
-		 active_percent, active_us, inactive_us);
 	return 0;
 }
 
@@ -445,15 +475,16 @@ int ivpu_pm_dct_disable(struct ivpu_device *vdev)
 {
 	int ret;
 
+	vdev->pm->dct_active_percent = 0;
+
+	ivpu_dbg(vdev, PM, "DCT requested to be disabled\n");
+
 	ret = ivpu_jsm_dct_disable(vdev);
 	if (ret) {
 		ivpu_err_ratelimited(vdev, "Failed to disable DCT: %d\n", ret);
 		return ret;
 	}
 
-	vdev->pm->dct_active_percent = 0;
-
-	ivpu_dbg(vdev, PM, "DCT disabled\n");
 	return 0;
 }
 
@@ -466,7 +497,7 @@ void ivpu_pm_irq_dct_work_fn(struct work_struct *work)
 	if (ivpu_hw_btrs_dct_get_request(vdev, &enable))
 		return;
 
-	if (vdev->pm->dct_active_percent)
+	if (enable)
 		ret = ivpu_pm_dct_enable(vdev, DCT_DEFAULT_ACTIVE_PERCENT);
 	else
 		ret = ivpu_pm_dct_disable(vdev);

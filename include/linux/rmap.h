@@ -223,7 +223,7 @@ static inline void __folio_large_mapcount_sanity_checks(const struct folio *foli
 	VM_WARN_ON_ONCE(folio_mm_id(folio, 1) != MM_ID_DUMMY &&
 			folio->_mm_id_mapcount[1] < 0);
 	VM_WARN_ON_ONCE(!folio_mapped(folio) &&
-			folio_test_large_maybe_mapped_shared(folio));
+			test_bit(FOLIO_MM_IDS_SHARED_BITNUM, &folio->_mm_ids));
 }
 
 static __always_inline void folio_set_large_mapcount(struct folio *folio,
@@ -893,7 +893,7 @@ static inline int folio_try_share_anon_rmap_pmd(struct folio *folio,
  * Called from mm/vmscan.c to handle paging out
  */
 int folio_referenced(struct folio *, int is_locked,
-			struct mem_cgroup *memcg, unsigned long *vm_flags);
+			struct mem_cgroup *memcg, vm_flags_t *vm_flags);
 
 void try_to_migrate(struct folio *folio, enum ttu_flags flags);
 void try_to_unmap(struct folio *, enum ttu_flags flags);
@@ -1025,7 +1025,7 @@ struct anon_vma *folio_lock_anon_vma_read(const struct folio *folio,
 
 static inline int folio_referenced(struct folio *folio, int is_locked,
 				  struct mem_cgroup *memcg,
-				  unsigned long *vm_flags)
+				  vm_flags_t *vm_flags)
 {
 	*vm_flags = 0;
 	return 0;

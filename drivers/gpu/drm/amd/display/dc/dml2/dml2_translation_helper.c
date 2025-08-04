@@ -896,7 +896,7 @@ static void populate_dummy_dml_surface_cfg(struct dml_surface_cfg_st *out, unsig
 	out->SurfaceWidthC[location] = in->timing.h_addressable;
 	out->SurfaceHeightC[location] = in->timing.v_addressable;
 	out->PitchY[location] = ((out->SurfaceWidthY[location] + 127) / 128) * 128;
-	out->PitchC[location] = 0;
+	out->PitchC[location] = 1;
 	out->DCCEnable[location] = false;
 	out->DCCMetaPitchY[location] = 0;
 	out->DCCMetaPitchC[location] = 0;
@@ -953,6 +953,7 @@ static void populate_dml_surface_cfg_from_plane_state(enum dml_project_id dml2_p
 		out->SourcePixelFormat[location] = dml_420_10;
 		break;
 	case SURFACE_PIXEL_FORMAT_GRPH_ARGB16161616:
+	case SURFACE_PIXEL_FORMAT_GRPH_ABGR16161616:
 	case SURFACE_PIXEL_FORMAT_GRPH_ARGB16161616F:
 	case SURFACE_PIXEL_FORMAT_GRPH_ABGR16161616F:
 		out->SourcePixelFormat[location] = dml_444_64;
@@ -973,7 +974,9 @@ static void populate_dml_surface_cfg_from_plane_state(enum dml_project_id dml2_p
 	}
 }
 
-static void get_scaler_data_for_plane(const struct dc_plane_state *in, struct dc_state *context, struct scaler_data *out)
+static struct scaler_data *get_scaler_data_for_plane(
+		const struct dc_plane_state *in,
+		struct dc_state *context)
 {
 	int i;
 	struct pipe_ctx *temp_pipe = &context->res_ctx.temp_pipe;
@@ -994,7 +997,7 @@ static void get_scaler_data_for_plane(const struct dc_plane_state *in, struct dc
 	}
 
 	ASSERT(i < MAX_PIPES);
-	memcpy(out, &temp_pipe->plane_res.scl_data, sizeof(*out));
+	return &temp_pipe->plane_res.scl_data;
 }
 
 static void populate_dummy_dml_plane_cfg(struct dml_plane_cfg_st *out, unsigned int location,
@@ -1057,11 +1060,7 @@ static void populate_dml_plane_cfg_from_plane_state(struct dml_plane_cfg_st *out
 						    const struct dc_plane_state *in, struct dc_state *context,
 						    const struct soc_bounding_box_st *soc)
 {
-	struct scaler_data *scaler_data = kzalloc(sizeof(*scaler_data), GFP_KERNEL);
-	if (!scaler_data)
-		return;
-
-	get_scaler_data_for_plane(in, context, scaler_data);
+	struct scaler_data *scaler_data = get_scaler_data_for_plane(in, context);
 
 	out->CursorBPP[location] = dml_cur_32bit;
 	out->CursorWidth[location] = 256;
@@ -1126,8 +1125,6 @@ static void populate_dml_plane_cfg_from_plane_state(struct dml_plane_cfg_st *out
 	out->DynamicMetadataTransmittedBytes[location] = 0;
 
 	out->NumberOfCursors[location] = 1;
-
-	kfree(scaler_data);
 }
 
 static unsigned int map_stream_to_dml_display_cfg(const struct dml2_context *dml2,
@@ -1190,22 +1187,6 @@ static unsigned int map_plane_to_dml_display_cfg(const struct dml2_context *dml2
 	}
 
 	return location;
-}
-
-static void apply_legacy_svp_drr_settings(struct dml2_context *dml2, const struct dc_state *state, struct dml_display_cfg_st *dml_dispcfg)
-{
-	int i;
-
-	if (state->bw_ctx.bw.dcn.clk.fw_based_mclk_switching) {
-		ASSERT(state->stream_count == 1);
-		dml_dispcfg->timing.DRRDisplay[0] = true;
-	} else if (state->bw_ctx.bw.dcn.legacy_svp_drr_stream_index_valid) {
-
-		for (i = 0; i < dml_dispcfg->num_timings; i++) {
-			if (dml2->v20.scratch.dml_to_dc_pipe_mapping.disp_cfg_to_stream_id[i] == state->streams[state->bw_ctx.bw.dcn.legacy_svp_drr_stream_index]->stream_id)
-				dml_dispcfg->timing.DRRDisplay[i] = true;
-		}
-	}
 }
 
 static void dml2_populate_pipe_to_plane_index_mapping(struct dml2_context *dml2, struct dc_state *state)
@@ -1440,9 +1421,6 @@ void map_dc_state_into_dml_display_cfg(struct dml2_context *dml2, struct dc_stat
 			}
 		}
 	}
-
-	if (!dml2->config.use_native_pstate_optimization)
-		apply_legacy_svp_drr_settings(dml2, context, dml_dispcfg);
 }
 
 void dml2_update_pipe_ctx_dchub_regs(struct _vcs_dpi_dml_display_rq_regs_st *rq_regs,

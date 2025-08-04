@@ -1355,11 +1355,7 @@ static int parse_raid_params(struct raid_set *rs, struct dm_arg_set *as,
 				return -EINVAL;
 			}
 
-			/*
-			 * In device-mapper, we specify things in sectors, but
-			 * MD records this value in kB
-			 */
-			if (value < 0 || value / 2 > COUNTER_MAX) {
+			if (value < 0) {
 				rs->ti->error = "Max write-behind limit out of range";
 				return -EINVAL;
 			}
@@ -2410,7 +2406,7 @@ static int super_init_validation(struct raid_set *rs, struct md_rdev *rdev)
 	 */
 	sb_retrieve_failed_devices(sb, failed_devices);
 	rdev_for_each(r, mddev) {
-		if (test_bit(Journal, &rdev->flags) ||
+		if (test_bit(Journal, &r->flags) ||
 		    !r->sb_page)
 			continue;
 		sb2 = page_address(r->sb_page);
@@ -2534,6 +2530,10 @@ static int analyse_superblocks(struct dm_target *ti, struct raid_set *rs)
 	int r;
 	struct md_rdev *rdev, *freshest;
 	struct mddev *mddev = &rs->md;
+
+	/* Respect resynchronization requested with "sync" argument. */
+	if (test_bit(__CTR_FLAG_SYNC, &rs->ctr_flags))
+		set_bit(MD_ARRAY_FIRST_USE, &mddev->flags);
 
 	freshest = NULL;
 	rdev_for_each(rdev, mddev) {
@@ -3308,6 +3308,7 @@ size_check:
 
 	/* Disable/enable discard support on raid set. */
 	configure_discard_support(rs);
+	rs->md.dm_gendisk = dm_disk(dm_table_get_md(ti->table));
 
 	mddev_unlock(&rs->md);
 	return 0;
@@ -3327,6 +3328,7 @@ static void raid_dtr(struct dm_target *ti)
 
 	mddev_lock_nointr(&rs->md);
 	md_stop(&rs->md);
+	rs->md.dm_gendisk = NULL;
 	mddev_unlock(&rs->md);
 
 	if (work_pending(&rs->md.event_work))

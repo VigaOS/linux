@@ -14,7 +14,6 @@
 #include <linux/percpu.h>
 #include <linux/notifier.h>
 #include <linux/init.h>
-#include <linux/export.h>
 #include <linux/miscdevice.h>
 #include <linux/perf_event.h>
 
@@ -980,8 +979,6 @@ static int cfdiag_push_sample(struct perf_event *event,
 	}
 
 	overflow = perf_event_overflow(event, &data, &regs);
-	if (overflow)
-		event->pmu->stop(event, 0);
 
 	perf_event_update_userpage(event);
 	return overflow;

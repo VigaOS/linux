@@ -61,11 +61,14 @@ static int hbg_reset_prepare(struct hbg_priv *priv, enum hbg_reset_type type)
 		return -EBUSY;
 	}
 
+	netif_device_detach(priv->netdev);
+
 	priv->reset_type = type;
 	set_bit(HBG_NIC_STATE_RESETTING, &priv->state);
 	clear_bit(HBG_NIC_STATE_RESET_FAIL, &priv->state);
 	ret = hbg_hw_event_notify(priv, HBG_HW_EVENT_RESET);
 	if (ret) {
+		priv->stats.reset_fail_cnt++;
 		set_bit(HBG_NIC_STATE_RESET_FAIL, &priv->state);
 		clear_bit(HBG_NIC_STATE_RESETTING, &priv->state);
 	}
@@ -86,10 +89,13 @@ static int hbg_reset_done(struct hbg_priv *priv, enum hbg_reset_type type)
 	clear_bit(HBG_NIC_STATE_RESETTING, &priv->state);
 	ret = hbg_rebuild(priv);
 	if (ret) {
+		priv->stats.reset_fail_cnt++;
 		set_bit(HBG_NIC_STATE_RESET_FAIL, &priv->state);
 		dev_err(&priv->pdev->dev, "failed to rebuild after reset\n");
 		return ret;
 	}
+
+	netif_device_attach(priv->netdev);
 
 	dev_info(&priv->pdev->dev, "reset done\n");
 	return ret;
@@ -117,16 +123,13 @@ void hbg_err_reset(struct hbg_priv *priv)
 	if (running)
 		dev_close(priv->netdev);
 
-	hbg_reset(priv);
-
-	/* in hbg_pci_err_detected(), we will detach first,
-	 * so we need to attach before open
-	 */
-	if (!netif_device_present(priv->netdev))
-		netif_device_attach(priv->netdev);
+	if (hbg_reset(priv))
+		goto err_unlock;
 
 	if (running)
 		dev_open(priv->netdev, NULL);
+
+err_unlock:
 	rtnl_unlock();
 }
 
@@ -160,7 +163,6 @@ static pci_ers_result_t hbg_pci_err_slot_reset(struct pci_dev *pdev)
 	pci_save_state(pdev);
 
 	hbg_err_reset(priv);
-	netif_device_attach(netdev);
 	return PCI_ERS_RESULT_RECOVERED;
 }
 

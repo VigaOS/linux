@@ -603,8 +603,8 @@ static int txx9_iocled_get(struct gpio_chip *chip, unsigned int offset)
 	return !!(data->cur_val & (1 << offset));
 }
 
-static void txx9_iocled_set(struct gpio_chip *chip, unsigned int offset,
-			    int value)
+static int txx9_iocled_set(struct gpio_chip *chip, unsigned int offset,
+			   int value)
 {
 	struct txx9_iocled_data *data = gpiochip_get_data(chip);
 	unsigned long flags;
@@ -616,6 +616,8 @@ static void txx9_iocled_set(struct gpio_chip *chip, unsigned int offset,
 	writeb(data->cur_val, data->mmioaddr);
 	mmiowb();
 	spin_unlock_irqrestore(&txx9_iocled_lock, flags);
+
+	return 0;
 }
 
 static int txx9_iocled_dir_in(struct gpio_chip *chip, unsigned int offset)
@@ -653,7 +655,7 @@ void __init txx9_iocled_init(unsigned long baseaddr,
 	if (!iocled->mmioaddr)
 		goto out_free;
 	iocled->chip.get = txx9_iocled_get;
-	iocled->chip.set = txx9_iocled_set;
+	iocled->chip.set_rv = txx9_iocled_set;
 	iocled->chip.direction_input = txx9_iocled_dir_in;
 	iocled->chip.direction_output = txx9_iocled_dir_out;
 	iocled->chip.label = "iocled";
@@ -774,7 +776,7 @@ struct txx9_sramc_dev {
 };
 
 static ssize_t txx9_sram_read(struct file *filp, struct kobject *kobj,
-			      struct bin_attribute *bin_attr,
+			      const struct bin_attribute *bin_attr,
 			      char *buf, loff_t pos, size_t size)
 {
 	struct txx9_sramc_dev *dev = bin_attr->private;
@@ -789,7 +791,7 @@ static ssize_t txx9_sram_read(struct file *filp, struct kobject *kobj,
 }
 
 static ssize_t txx9_sram_write(struct file *filp, struct kobject *kobj,
-			       struct bin_attribute *bin_attr,
+			       const struct bin_attribute *bin_attr,
 			       char *buf, loff_t pos, size_t size)
 {
 	struct txx9_sramc_dev *dev = bin_attr->private;

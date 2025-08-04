@@ -50,7 +50,7 @@ struct io_uring_sqe {
 	};
 	__u32	len;		/* buffer size or number of iovecs */
 	union {
-		__kernel_rwf_t	rw_flags;
+		__u32		rw_flags;
 		__u32		fsync_flags;
 		__u16		poll_events;	/* compatibility */
 		__u32		poll32_events;	/* word-reversed for BE */
@@ -73,6 +73,7 @@ struct io_uring_sqe {
 		__u32		futex_flags;
 		__u32		install_fd_flags;
 		__u32		nop_flags;
+		__u32		pipe_flags;
 	};
 	__u64	user_data;	/* data to be passed back at completion time */
 	/* pack this to avoid bogus arm OABI complaints */
@@ -92,6 +93,10 @@ struct io_uring_sqe {
 		struct {
 			__u16	addr_len;
 			__u16	__pad3[1];
+		};
+		struct {
+			__u8	write_stream;
+			__u8	__pad4[3];
 		};
 	};
 	union {
@@ -283,6 +288,7 @@ enum io_uring_op {
 	IORING_OP_EPOLL_WAIT,
 	IORING_OP_READV_FIXED,
 	IORING_OP_WRITEV_FIXED,
+	IORING_OP_PIPE,
 
 	/* this goes last, obviously */
 	IORING_OP_LAST,
@@ -443,6 +449,7 @@ enum io_uring_msg_ring_flags {
 #define IORING_NOP_FILE			(1U << 1)
 #define IORING_NOP_FIXED_FILE		(1U << 2)
 #define IORING_NOP_FIXED_BUFFER		(1U << 3)
+#define IORING_NOP_TW			(1U << 4)
 
 /*
  * IO completion data structure (Completion Queue Entry)
@@ -962,6 +969,22 @@ enum io_uring_socket_op {
 	SOCKET_URING_OP_SIOCOUTQ,
 	SOCKET_URING_OP_GETSOCKOPT,
 	SOCKET_URING_OP_SETSOCKOPT,
+	SOCKET_URING_OP_TX_TIMESTAMP,
+};
+
+/*
+ * SOCKET_URING_OP_TX_TIMESTAMP definitions
+ */
+
+#define IORING_TIMESTAMP_HW_SHIFT	16
+/* The cqe->flags bit from which the timestamp type is stored */
+#define IORING_TIMESTAMP_TYPE_SHIFT	(IORING_TIMESTAMP_HW_SHIFT + 1)
+/* The cqe->flags flag signifying whether it's a hardware timestamp */
+#define IORING_CQE_F_TSTAMP_HW		((__u32)1 << IORING_TIMESTAMP_HW_SHIFT)
+
+struct io_timespec {
+	__u64		tv_sec;
+	__u64		tv_nsec;
 };
 
 /* Zero copy receive refill queue entry */
@@ -988,12 +1011,16 @@ struct io_uring_zcrx_offsets {
 	__u64	__resv[2];
 };
 
+enum io_uring_zcrx_area_flags {
+	IORING_ZCRX_AREA_DMABUF		= 1,
+};
+
 struct io_uring_zcrx_area_reg {
 	__u64	addr;
 	__u64	len;
 	__u64	rq_area_token;
 	__u32	flags;
-	__u32	__resv1;
+	__u32	dmabuf_fd;
 	__u64	__resv2[2];
 };
 
@@ -1010,7 +1037,9 @@ struct io_uring_zcrx_ifq_reg {
 	__u64	region_ptr; /* struct io_uring_region_desc * */
 
 	struct io_uring_zcrx_offsets offsets;
-	__u64	__resv[4];
+	__u32	zcrx_id;
+	__u32	__resv2;
+	__u64	__resv[3];
 };
 
 #ifdef __cplusplus
