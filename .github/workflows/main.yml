@@ -20,13 +20,13 @@ jobs:
     - name: Moving Output
       run: |
         mkdir -p /home/runner/work/output
-        cp ./out/arch/arm64/boot/zImage /home/runner/work/output/zImage
+        cp ./out/arch/arm64/boot/Image /home/runner/work/output/Image
         cp ./out/arch/arm64/boot/dts/qcom/sm6125-xiaomi-ginkgo.dtb /home/runner/work/output/sm6125-xiaomi-ginkgo.dtb
     - name: Uploading Output
       uses: actions/upload-artifact@v4
       with:
         name: zImage
-        path: /home/runner/work/output/zImage
+        path: /home/runner/work/output/Image
     - name: Uploading Output
       uses: actions/upload-artifact@v4
       with:
