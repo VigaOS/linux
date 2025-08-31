@@ -16,7 +16,7 @@ jobs:
         sudo apt update
         sudo apt install lib32z1 ccache autoconf flex bison git build-essential make gcc-aarch64-linux-gnu ncurses-dev
     - name: Building Kernel
-      run: ./build.sh
+      run: chmod +x build.sh && ./build.sh
     - name: Moving Output
       run: |
         mkdir -p /home/runner/work/output
