@@ -13,6 +13,11 @@
 #include "sm6125.dtsi"
 #include "pm6125.dtsi"
 
+/delete-node/ &adsp_pil_mem;
+/delete-node/ &ipa_fw_mem;
+/delete-node/ &ipa_gsi_mem;
+/delete-node/ &gpu_mem;
+
 / {
 	model = "Xiaomi Redmi Note 8";
 	compatible = "xiaomi,ginkgo", "qcom,sm6125";
@@ -38,6 +43,25 @@
 	};
 
 	reserved-memory {
+		adsp_pil_mem: memory@55300000 {
+			reg = <0x0 0x55300000 0x0 0x2200000>;
+			no-map;
+		};
+
+		ipa_fw_mem: memory@57500000 {
+			reg = <0x0 0x57500000 0x0 0x10000>;
+			no-map;
+		};
+		ipa_gsi_mem: memory@57510000 {
+			reg = <0x0 0x57510000 0x0 0x5000>;
+			no-map;
+		};
+
+		gpu_mem: memory@57515000 {
+			reg = <0x0 0x57515000 0x0 0x2000>;
+			no-map;
+		};
+
 		debug_mem: debug@ffb00000 {
 			reg = <0x0 0xffb00000 0x0 0xc0000>;
 			no-map;
@@ -48,12 +72,12 @@
 			no-map;
 		};
 
-		pstore_mem: ramoops@ffc00000 {
+		pstore_mem: ramoops@61600000 {
 			compatible = "ramoops";
-			reg = <0x0 0xffc40000 0x0 0xc0000>;
-			record-size = <0x1000>;
-			console-size = <0x40000>;
-			pmsg-size = <0x20000>;
+			reg = <0x0 0x61600000 0x0 0x400000>;
+			record-size = <0x80000>;
+			console-size = <0x100000>;
+			pmsg-size = <0x200000>;
 		};
 
 		cmdline_mem: memory@ffd00000 {
@@ -82,9 +106,59 @@
 			wakeup-source;
 		};
 	};
+
+	thermal-zones {
+		rf-pa0-thermal {
+			thermal-sensors = <&pm6125_adc_tm 0>;
+
+			trips {
+				active-config0 {
+					temperature = <125000>;
+					hysteresis = <1000>;
+					type = "critical";
+				};
+			};
+		};
+
+		quiet-thermal {
+			thermal-sensors = <&pm6125_adc_tm 1>;
+
+			trips {
+				active-config0 {
+					temperature = <125000>;
+					hysteresis = <1000>;
+					type = "critical";
+				};
+			};
+		};
+
+		xo-thermal {
+			thermal-sensors = <&pm6125_adc_tm 2>;
+
+			trips {
+				active-config0 {
+					temperature = <125000>;
+					hysteresis = <1000>;
+					type = "critical";
+				};
+			};
+		};
+	};
 };
 
 &pm6125_gpios {
+	camera_flash_therm: camera-flash-therm-state {
+		pins = "gpio3";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		bias-high-impedance;
+	};
+
+	emmc_ufs_therm: emmc-ufs-therm-state {
+		pins = "gpio6";
+		function = PMIC_GPIO_FUNC_NORMAL;
+		bias-high-impedance;
+	};
+
 	vol_up_n: vol-up-n-state {
 		pins = "gpio6";
 		function = "normal";
@@ -99,6 +173,68 @@
 	vdda-pll-supply = <&vreg_l10a>;
 	vdda-phy-dpdm-supply = <&vreg_l15a>;
 	status = "okay";
+};
+
+&pm6125_adc {
+	pinctrl-names = "default";
+	pinctrl-0 = <&camera_flash_therm &emmc_ufs_therm>;
+
+	channel@4d {
+		reg = <ADC5_AMUX_THM1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+		label = "rf_pa0_therm";
+	};
+
+	channel@4e {
+		reg = <ADC5_AMUX_THM2_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+		label = "quiet_therm";
+	};
+
+	channel@52 {
+		reg = <ADC5_GPIO1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+		label = "camera_flash_therm";
+	};
+
+	channel@54 {
+		reg = <ADC5_GPIO3_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+		label = "emmc_ufs_therm";
+	};
+};
+
+&pm6125_adc_tm {
+	status = "okay";
+
+	rf-pa0-therm@0 {
+		reg = <0>;
+		io-channels = <&pm6125_adc ADC5_AMUX_THM1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time-us = <200>;
+	};
+
+	quiet-therm@1 {
+		reg = <1>;
+		io-channels = <&pm6125_adc ADC5_AMUX_THM2_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time-us = <200>;
+	};
+
+	xo-therm@2 {
+		reg = <2>;
+		io-channels = <&pm6125_adc ADC5_XO_THERM_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time-us = <200>;
+	};
 };
 
 &pon_pwrkey {
@@ -142,7 +278,7 @@
 
 		vreg_l5a: l5 {
 			regulator-min-microvolt = <1648000>;
-			regulator-max-microvolt = <2950000>;
+			regulator-max-microvolt = <3104000>;
 			regulator-allow-set-load;
 		};
 
@@ -231,7 +367,7 @@
 
 		vreg_l22a: l22 {
 			regulator-min-microvolt = <2944000>;
-			regulator-max-microvolt = <2950000>;
+			regulator-max-microvolt = <3304000>;
 			regulator-allow-set-load;
 		};
 
@@ -242,7 +378,7 @@
 
 		vreg_l24a: l24 {
 			regulator-min-microvolt = <2944000>;
-			regulator-max-microvolt = <2950000>;
+			regulator-max-microvolt = <3304000>;
 			regulator-allow-set-load;
 		};
 
