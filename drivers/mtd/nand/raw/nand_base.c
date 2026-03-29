@@ -8,7 +8,7 @@
  *	http://www.linux-mtd.infradead.org/doc/nand.html
  *
  *  Copyright (C) 2000 Steven J. Hill (sjhill@realitydiluted.com)
- *		  2002-2006 Thomas Gleixner (tglx@linutronix.de)
+ *		  2002-2006 Thomas Gleixner (tglx@kernel.org)
  *
  *  Credits:
  *	David Woodhouse for adding multichip support
@@ -1062,7 +1062,7 @@ static int nand_choose_interface_config(struct nand_chip *chip)
 	if (!nand_controller_can_setup_interface(chip))
 		return 0;
 
-	iface = kzalloc(sizeof(*iface), GFP_KERNEL);
+	iface = kzalloc_obj(*iface);
 	if (!iface)
 		return -ENOMEM;
 
@@ -4737,11 +4737,16 @@ static void nand_shutdown(struct mtd_info *mtd)
 static int nand_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 {
 	struct nand_chip *chip = mtd_to_nand(mtd);
+	int ret;
 
 	if (!chip->ops.lock_area)
 		return -ENOTSUPP;
 
-	return chip->ops.lock_area(chip, ofs, len);
+	nand_get_device(chip);
+	ret = chip->ops.lock_area(chip, ofs, len);
+	nand_release_device(chip);
+
+	return ret;
 }
 
 /**
@@ -4753,11 +4758,16 @@ static int nand_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 static int nand_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 {
 	struct nand_chip *chip = mtd_to_nand(mtd);
+	int ret;
 
 	if (!chip->ops.unlock_area)
 		return -ENOTSUPP;
 
-	return chip->ops.unlock_area(chip, ofs, len);
+	nand_get_device(chip);
+	ret = chip->ops.unlock_area(chip, ofs, len);
+	nand_release_device(chip);
+
+	return ret;
 }
 
 /* Set default functions */
@@ -5429,8 +5439,8 @@ static int of_get_nand_secure_regions(struct nand_chip *chip)
 		return nr_elem;
 
 	chip->nr_secure_regions = nr_elem / 2;
-	chip->secure_regions = kcalloc(chip->nr_secure_regions, sizeof(*chip->secure_regions),
-				       GFP_KERNEL);
+	chip->secure_regions = kzalloc_objs(*chip->secure_regions,
+					    chip->nr_secure_regions);
 	if (!chip->secure_regions)
 		return -ENOMEM;
 
@@ -6594,5 +6604,5 @@ EXPORT_SYMBOL_GPL(nand_cleanup);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Steven J. Hill <sjhill@realitydiluted.com>");
-MODULE_AUTHOR("Thomas Gleixner <tglx@linutronix.de>");
+MODULE_AUTHOR("Thomas Gleixner <tglx@kernel.org>");
 MODULE_DESCRIPTION("Generic NAND flash driver code");

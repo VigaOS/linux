@@ -40,6 +40,75 @@ use crate::{
     },
 };
 
+// TODO: Replace with `IoView` projections once available; the `unwrap()` calls go away once we
+// switch to the new `dma::Coherent` API.
+pub(super) mod gsp_mem {
+    use core::sync::atomic::{
+        fence,
+        Ordering, //
+    };
+
+    use kernel::{
+        dma::CoherentAllocation,
+        dma_read,
+        dma_write,
+        prelude::*, //
+    };
+
+    use crate::gsp::cmdq::{
+        GspMem,
+        MSGQ_NUM_PAGES, //
+    };
+
+    pub(in crate::gsp) fn gsp_write_ptr(qs: &CoherentAllocation<GspMem>) -> u32 {
+        // PANIC: A `dma::CoherentAllocation` always contains at least one element.
+        || -> Result<u32> { Ok(dma_read!(qs, [0]?.gspq.tx.0.writePtr) % MSGQ_NUM_PAGES) }().unwrap()
+    }
+
+    pub(in crate::gsp) fn gsp_read_ptr(qs: &CoherentAllocation<GspMem>) -> u32 {
+        // PANIC: A `dma::CoherentAllocation` always contains at least one element.
+        || -> Result<u32> { Ok(dma_read!(qs, [0]?.gspq.rx.0.readPtr) % MSGQ_NUM_PAGES) }().unwrap()
+    }
+
+    pub(in crate::gsp) fn cpu_read_ptr(qs: &CoherentAllocation<GspMem>) -> u32 {
+        // PANIC: A `dma::CoherentAllocation` always contains at least one element.
+        || -> Result<u32> { Ok(dma_read!(qs, [0]?.cpuq.rx.0.readPtr) % MSGQ_NUM_PAGES) }().unwrap()
+    }
+
+    pub(in crate::gsp) fn advance_cpu_read_ptr(qs: &CoherentAllocation<GspMem>, count: u32) {
+        let rptr = cpu_read_ptr(qs).wrapping_add(count) % MSGQ_NUM_PAGES;
+
+        // Ensure read pointer is properly ordered.
+        fence(Ordering::SeqCst);
+
+        // PANIC: A `dma::CoherentAllocation` always contains at least one element.
+        || -> Result {
+            dma_write!(qs, [0]?.cpuq.rx.0.readPtr, rptr);
+            Ok(())
+        }()
+        .unwrap()
+    }
+
+    pub(in crate::gsp) fn cpu_write_ptr(qs: &CoherentAllocation<GspMem>) -> u32 {
+        // PANIC: A `dma::CoherentAllocation` always contains at least one element.
+        || -> Result<u32> { Ok(dma_read!(qs, [0]?.cpuq.tx.0.writePtr) % MSGQ_NUM_PAGES) }().unwrap()
+    }
+
+    pub(in crate::gsp) fn advance_cpu_write_ptr(qs: &CoherentAllocation<GspMem>, count: u32) {
+        let wptr = cpu_write_ptr(qs).wrapping_add(count) % MSGQ_NUM_PAGES;
+
+        // PANIC: A `dma::CoherentAllocation` always contains at least one element.
+        || -> Result {
+            dma_write!(qs, [0]?.cpuq.tx.0.writePtr, wptr);
+            Ok(())
+        }()
+        .unwrap();
+
+        // Ensure all command data is visible before triggering the GSP read.
+        fence(Ordering::SeqCst);
+    }
+}
+
 /// Empty type to group methods related to heap parameters for running the GSP firmware.
 enum GspFwHeapParams {}
 
@@ -141,8 +210,8 @@ unsafe impl AsBytes for GspFwWprMeta {}
 // are valid.
 unsafe impl FromBytes for GspFwWprMeta {}
 
-type GspFwWprMetaBootResumeInfo = r570_144::GspFwWprMeta__bindgen_ty_1;
-type GspFwWprMetaBootInfo = r570_144::GspFwWprMeta__bindgen_ty_1__bindgen_ty_1;
+type GspFwWprMetaBootResumeInfo = bindings::GspFwWprMeta__bindgen_ty_1;
+type GspFwWprMetaBootInfo = bindings::GspFwWprMeta__bindgen_ty_1__bindgen_ty_1;
 
 impl GspFwWprMeta {
     /// Fill in and return a `GspFwWprMeta` suitable for booting `gsp_firmware` using the
@@ -150,8 +219,8 @@ impl GspFwWprMeta {
     pub(crate) fn new(gsp_firmware: &GspFirmware, fb_layout: &FbLayout) -> Self {
         Self(bindings::GspFwWprMeta {
             // CAST: we want to store the bits of `GSP_FW_WPR_META_MAGIC` unmodified.
-            magic: r570_144::GSP_FW_WPR_META_MAGIC as u64,
-            revision: u64::from(r570_144::GSP_FW_WPR_META_REVISION),
+            magic: bindings::GSP_FW_WPR_META_MAGIC as u64,
+            revision: u64::from(bindings::GSP_FW_WPR_META_REVISION),
             sysmemAddrOfRadix3Elf: gsp_firmware.radix3_dma_handle(),
             sizeOfRadix3Elf: u64::from_safe_cast(gsp_firmware.size),
             sysmemAddrOfBootloader: gsp_firmware.bootloader.ucode.dma_handle(),
@@ -315,19 +384,19 @@ impl From<MsgFunction> for u32 {
 #[repr(u32)]
 pub(crate) enum SeqBufOpcode {
     // Core operation opcodes
-    CoreReset = r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_CORE_RESET,
-    CoreResume = r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_CORE_RESUME,
-    CoreStart = r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_CORE_START,
-    CoreWaitForHalt = r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_CORE_WAIT_FOR_HALT,
+    CoreReset = bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_CORE_RESET,
+    CoreResume = bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_CORE_RESUME,
+    CoreStart = bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_CORE_START,
+    CoreWaitForHalt = bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_CORE_WAIT_FOR_HALT,
 
     // Delay opcode
-    DelayUs = r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_DELAY_US,
+    DelayUs = bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_DELAY_US,
 
     // Register operation opcodes
-    RegModify = r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_REG_MODIFY,
-    RegPoll = r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_REG_POLL,
-    RegStore = r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_REG_STORE,
-    RegWrite = r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_REG_WRITE,
+    RegModify = bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_REG_MODIFY,
+    RegPoll = bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_REG_POLL,
+    RegStore = bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_REG_STORE,
+    RegWrite = bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_REG_WRITE,
 }
 
 impl fmt::Display for SeqBufOpcode {
@@ -351,25 +420,25 @@ impl TryFrom<u32> for SeqBufOpcode {
 
     fn try_from(value: u32) -> Result<SeqBufOpcode> {
         match value {
-            r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_CORE_RESET => {
+            bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_CORE_RESET => {
                 Ok(SeqBufOpcode::CoreReset)
             }
-            r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_CORE_RESUME => {
+            bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_CORE_RESUME => {
                 Ok(SeqBufOpcode::CoreResume)
             }
-            r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_CORE_START => {
+            bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_CORE_START => {
                 Ok(SeqBufOpcode::CoreStart)
             }
-            r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_CORE_WAIT_FOR_HALT => {
+            bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_CORE_WAIT_FOR_HALT => {
                 Ok(SeqBufOpcode::CoreWaitForHalt)
             }
-            r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_DELAY_US => Ok(SeqBufOpcode::DelayUs),
-            r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_REG_MODIFY => {
+            bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_DELAY_US => Ok(SeqBufOpcode::DelayUs),
+            bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_REG_MODIFY => {
                 Ok(SeqBufOpcode::RegModify)
             }
-            r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_REG_POLL => Ok(SeqBufOpcode::RegPoll),
-            r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_REG_STORE => Ok(SeqBufOpcode::RegStore),
-            r570_144::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_REG_WRITE => Ok(SeqBufOpcode::RegWrite),
+            bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_REG_POLL => Ok(SeqBufOpcode::RegPoll),
+            bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_REG_STORE => Ok(SeqBufOpcode::RegStore),
+            bindings::GSP_SEQ_BUF_OPCODE_GSP_SEQ_BUF_OPCODE_REG_WRITE => Ok(SeqBufOpcode::RegWrite),
             _ => Err(EINVAL),
         }
     }
@@ -385,7 +454,7 @@ impl From<SeqBufOpcode> for u32 {
 /// Wrapper for GSP sequencer register write payload.
 #[repr(transparent)]
 #[derive(Copy, Clone)]
-pub(crate) struct RegWritePayload(r570_144::GSP_SEQ_BUF_PAYLOAD_REG_WRITE);
+pub(crate) struct RegWritePayload(bindings::GSP_SEQ_BUF_PAYLOAD_REG_WRITE);
 
 impl RegWritePayload {
     /// Returns the register address.
@@ -408,7 +477,7 @@ unsafe impl AsBytes for RegWritePayload {}
 /// Wrapper for GSP sequencer register modify payload.
 #[repr(transparent)]
 #[derive(Copy, Clone)]
-pub(crate) struct RegModifyPayload(r570_144::GSP_SEQ_BUF_PAYLOAD_REG_MODIFY);
+pub(crate) struct RegModifyPayload(bindings::GSP_SEQ_BUF_PAYLOAD_REG_MODIFY);
 
 impl RegModifyPayload {
     /// Returns the register address.
@@ -436,7 +505,7 @@ unsafe impl AsBytes for RegModifyPayload {}
 /// Wrapper for GSP sequencer register poll payload.
 #[repr(transparent)]
 #[derive(Copy, Clone)]
-pub(crate) struct RegPollPayload(r570_144::GSP_SEQ_BUF_PAYLOAD_REG_POLL);
+pub(crate) struct RegPollPayload(bindings::GSP_SEQ_BUF_PAYLOAD_REG_POLL);
 
 impl RegPollPayload {
     /// Returns the register address.
@@ -469,7 +538,7 @@ unsafe impl AsBytes for RegPollPayload {}
 /// Wrapper for GSP sequencer delay payload.
 #[repr(transparent)]
 #[derive(Copy, Clone)]
-pub(crate) struct DelayUsPayload(r570_144::GSP_SEQ_BUF_PAYLOAD_DELAY_US);
+pub(crate) struct DelayUsPayload(bindings::GSP_SEQ_BUF_PAYLOAD_DELAY_US);
 
 impl DelayUsPayload {
     /// Returns the delay value in microseconds.
@@ -487,7 +556,7 @@ unsafe impl AsBytes for DelayUsPayload {}
 /// Wrapper for GSP sequencer register store payload.
 #[repr(transparent)]
 #[derive(Copy, Clone)]
-pub(crate) struct RegStorePayload(r570_144::GSP_SEQ_BUF_PAYLOAD_REG_STORE);
+pub(crate) struct RegStorePayload(bindings::GSP_SEQ_BUF_PAYLOAD_REG_STORE);
 
 impl RegStorePayload {
     /// Returns the register address.
@@ -510,7 +579,7 @@ unsafe impl AsBytes for RegStorePayload {}
 
 /// Wrapper for GSP sequencer buffer command.
 #[repr(transparent)]
-pub(crate) struct SequencerBufferCmd(r570_144::GSP_SEQUENCER_BUFFER_CMD);
+pub(crate) struct SequencerBufferCmd(bindings::GSP_SEQUENCER_BUFFER_CMD);
 
 impl SequencerBufferCmd {
     /// Returns the opcode as a `SeqBufOpcode` enum, or error if invalid.
@@ -612,7 +681,7 @@ unsafe impl AsBytes for SequencerBufferCmd {}
 
 /// Wrapper for GSP run CPU sequencer RPC.
 #[repr(transparent)]
-pub(crate) struct RunCpuSequencer(r570_144::rpc_run_cpu_sequencer_v17_00);
+pub(crate) struct RunCpuSequencer(bindings::rpc_run_cpu_sequencer_v17_00);
 
 impl RunCpuSequencer {
     /// Returns the command index.
@@ -708,22 +777,6 @@ impl MsgqTxHeader {
             entryOff: num::usize_into_u32::<GSP_PAGE_SIZE>(),
         })
     }
-
-    /// Returns the value of the write pointer for this queue.
-    pub(crate) fn write_ptr(&self) -> u32 {
-        let ptr = core::ptr::from_ref(&self.0.writePtr);
-
-        // SAFETY: `ptr` is a valid pointer to a `u32`.
-        unsafe { ptr.read_volatile() }
-    }
-
-    /// Sets the value of the write pointer for this queue.
-    pub(crate) fn set_write_ptr(&mut self, val: u32) {
-        let ptr = core::ptr::from_mut(&mut self.0.writePtr);
-
-        // SAFETY: `ptr` is a valid pointer to a `u32`.
-        unsafe { ptr.write_volatile(val) }
-    }
 }
 
 // SAFETY: Padding is explicit and does not contain uninitialized data.
@@ -738,22 +791,6 @@ impl MsgqRxHeader {
     /// Creates a new RX queue header.
     pub(crate) fn new() -> Self {
         Self(Default::default())
-    }
-
-    /// Returns the value of the read pointer for this queue.
-    pub(crate) fn read_ptr(&self) -> u32 {
-        let ptr = core::ptr::from_ref(&self.0.readPtr);
-
-        // SAFETY: `ptr` is a valid pointer to a `u32`.
-        unsafe { ptr.read_volatile() }
-    }
-
-    /// Sets the value of the read pointer for this queue.
-    pub(crate) fn set_read_ptr(&mut self, val: u32) {
-        let ptr = core::ptr::from_mut(&mut self.0.readPtr);
-
-        // SAFETY: `ptr` is a valid pointer to a `u32`.
-        unsafe { ptr.write_volatile(val) }
     }
 }
 
@@ -796,13 +833,6 @@ impl bindings::rpc_message_header_v {
         })
     }
 }
-
-// SAFETY: We can't derive the Zeroable trait for this binding because the
-// procedural macro doesn't support the syntax used by bindgen to create the
-// __IncompleteArrayField types. So instead we implement it here, which is safe
-// because these are explicitly padded structures only containing types for
-// which any bit pattern, including all zeros, is valid.
-unsafe impl Zeroable for bindings::rpc_message_header_v {}
 
 /// GSP Message Element.
 ///
@@ -853,11 +883,16 @@ impl GspMsgElement {
         self.inner.checkSum = checksum;
     }
 
-    /// Returns the total length of the message.
+    /// Returns the length of the message's payload.
+    pub(crate) fn payload_length(&self) -> usize {
+        // `rpc.length` includes the length of the RPC message header.
+        num::u32_as_usize(self.inner.rpc.length)
+            .saturating_sub(size_of::<bindings::rpc_message_header_v>())
+    }
+
+    /// Returns the total length of the message, message and RPC headers included.
     pub(crate) fn length(&self) -> usize {
-        // `rpc.length` includes the length of the GspRpcHeader but not the message header.
-        size_of::<Self>() - size_of::<bindings::rpc_message_header_v>()
-            + num::u32_as_usize(self.inner.rpc.length)
+        size_of::<Self>() + self.payload_length()
     }
 
     // Returns the sequence number of the message.
@@ -906,9 +941,21 @@ impl GspArgumentsCached {
 // SAFETY: Padding is explicit and will not contain uninitialized data.
 unsafe impl AsBytes for GspArgumentsCached {}
 
+/// On Turing and GA100, the entries in the `LibosMemoryRegionInitArgument`
+/// must all be a multiple of GSP_PAGE_SIZE in size, so add padding to force it
+/// to that size.
+#[repr(C)]
+pub(crate) struct GspArgumentsPadded {
+    pub(crate) inner: GspArgumentsCached,
+    _padding: [u8; GSP_PAGE_SIZE - core::mem::size_of::<bindings::GSP_ARGUMENTS_CACHED>()],
+}
+
+// SAFETY: Padding is explicit and will not contain uninitialized data.
+unsafe impl AsBytes for GspArgumentsPadded {}
+
 // SAFETY: This struct only contains integer types for which all bit patterns
 // are valid.
-unsafe impl FromBytes for GspArgumentsCached {}
+unsafe impl FromBytes for GspArgumentsPadded {}
 
 /// Init arguments for the message queue.
 #[repr(transparent)]
